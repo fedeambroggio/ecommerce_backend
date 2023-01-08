@@ -2,61 +2,131 @@ const express = require("express");
 const app = express();
 const routerProductos = express.Router();
 const routerCarrito = express.Router();
-const fs = require("fs");
 const ADMINISTRADOR = true;
+const Producto = require('./lib/producto.js');
+const Carrito = require('./lib/carrito.js');
+const FileManager = require('./lib/file_manager.js');
+
+const ProductosFileManager = new FileManager('productos')
+const CarritosFileManager = new FileManager('carritos')
 
 routerProductos.route("/")
-    .get((req, res) => {
-        res.send({ success: "lista de todos los productos" });
+    .get(async (req, res) => {
+        const productosGet = await ProductosFileManager.getAll();
+        res.send(productosGet)
     })
     .post((req, res) => {
         if (ADMINISTRADOR) {
-            res.send({ success: `Producto ${JSON.stringify(req.body)} añadido` });
+            const { nombre, descripcion, codigo, foto, precio, stock } = req.body;
+            const newProduct = new Producto(nombre, descripcion, codigo, foto, precio, stock)
+            ProductosFileManager.save(newProduct)
+            res.send({success: `Producto ${JSON.stringify(newProduct)} añadido`})
         } else {
             res.send({ error: '-1', descripcion: 'ruta "/api/productos", método "POST" no autorizada' });
         }
     });
 
 routerProductos.route("/:id")
-    .get((req, res) => {
-        res.send({ success: `producto ${req.params.id}` });
+    .get(async (req, res) => {
+        const productoGet = await ProductosFileManager.getById(req.params.id)
+        if (productoGet)
+            res.send({
+                success: `Producto ${req.params.id} encontrado`,
+                data: productoGet
+            })
+        else 
+            res.send({error: "Producto no encontrado"})
     })
     .put((req, res) => {
         if (ADMINISTRADOR) {
-            res.send({ success: `actualizar ${req.params.id}` });
+            const productoUpdated = ProductosFileManager.update(req.params.id, req.body)
+            if (productoUpdated)
+                res.send({success: `Producto ${productoUpdated} editado`})
+            else 
+                res.send({error: "Producto no encontrado"})
         } else {
             res.send({ error: '-1', descripcion: 'ruta "/api/productos/:id", método "PUT" no autorizada' });
         }
     })
     .delete((req, res) => {
         if (ADMINISTRADOR) {
-            res.send({ success: `borrar ${req.params.id}` });
+            const productoDeleted = ProductosFileManager.deleteById(req.params.id)
+        if (productoDeleted)
+            res.send({success: `Producto ${productoDeleted} eliminado`})
+        else 
+            res.send({error: "Producto no encontrado"})
         } else {
             res.send({ error: '-1', descripcion: 'ruta "/api/productos/:id", método "DELETE" no autorizada' });
         }
     });
 
 routerCarrito.route("/")
-    .post((req, res) => {
-        res.send({ success: `Carrito ${JSON.stringify(req.body)} añadido` });
+    .post(async (req, res) => {
+        const { productos } = req.body;
+        
+        let productsToAdd = [];
+        if (productos.length > 0) {
+            await productos.map(async idProd => {
+                const productoGet = await ProductosFileManager.getById(idProd)
+                
+                if (productoGet) {
+                    const { nombre, descripcion, codigo, foto, precio, stock } = productoGet;
+                    productsToAdd.push({ id: idProd, ...new Producto(nombre, descripcion, codigo, foto, precio, stock) })
+                }
+            })
+        }
+        
+        const newCarrito = new Carrito(productsToAdd)
+        CarritosFileManager.save(newCarrito)
+        res.send({success: `Carrito ${JSON.stringify(req.body)} añadido`})
     });
 
 routerCarrito.route("/:id")
     .delete((req, res) => {
-        res.send({ success: `borrar ${req.params.id}` });
+        const carritoDeleted = CarritosFileManager.deleteById(req.params.id)
+        if (carritoDeleted)
+            res.send({success: `Carrito ${carritoDeleted} eliminado`})
+        else 
+            res.send({error: "Carrito no encontrado"})
     });
 
 routerCarrito.route("/:id/productos")
-    .get((req, res) => {
-        res.send({ success: `producto ${req.params.id}` });
+    .get(async (req, res) => {
+        const productoGet = await CarritosFileManager.getProductosOnCarritoById(req.params.id)
+        if (productoGet)
+            res.send({
+                success: `Productos de carrito ${req.params.id} encontrados`,
+                data: productoGet
+            })
+        else
+            res.send({error: "Productos de carrito no encontrados"})
     })
-    .post((req, res) => {
-        res.send({ success: `agregar ${req.params.id}` });
+    .post(async (req, res) => {
+
+        let productsToAdd = [];
+        const { productos } = req.body;
+        productos.map(async idProd => {
+            const productoGet = await ProductosFileManager.getById(idProd)
+            if (productoGet) {
+                const { nombre, descripcion, codigo, foto, precio, stock } = productoGet;
+                productsToAdd.push({ id: idProd, ...new Producto(nombre, descripcion, codigo, foto, precio, stock) })
+            }
+        })
+
+        const productoSaved = await CarritosFileManager.saveProductosOnCarritoById(req.params.id, productsToAdd)
+        if (productoSaved) {
+            res.send({success: `Productos ${JSON.stringify(req.body)} añadidos al carrito ${req.params.id}`})
+        } else 
+            res.send({error: "Productos de carrito no guardados"})
     });
 
 routerCarrito.route("/:id/productos/:id_prod")
     .delete((req, res) => {
-        res.send({ success: `borrar ${req.params.id_prod} de ${req.params.id}` });
+        const carritoDeleted = CarritosFileManager.deleteProductByIdOnCarritoById(req.params.id, req.params.id_prod)
+        if (carritoDeleted)
+            res.send({ success: `borrar ${req.params.id_prod} de ${req.params.id}` });
+        else 
+            res.send({error: "Carrito o producto no encontrado"})
     });
 
 // SERVER CONFIG
